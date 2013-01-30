@@ -1,3 +1,9 @@
+Fork of the Facebook PHP SDK
+-----
+This fork modifies the Facebook PHP SDK to run with HTTP Streams rather than
+Curl, allowing it to operate on systems without the Curl extension installed.
+
+
 Facebook PHP SDK (v.3.2.2)
 
 The [Facebook Platform](http://developers.facebook.com/) is

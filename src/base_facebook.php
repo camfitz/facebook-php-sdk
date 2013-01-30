@@ -15,9 +15,6 @@
  * under the License.
  */
 
-if (!function_exists('curl_init')) {
-  throw new Exception('Facebook needs the CURL PHP extension.');
-}
 if (!function_exists('json_decode')) {
   throw new Exception('Facebook needs the JSON PHP extension.');
 }
@@ -921,10 +918,6 @@ abstract class BaseFacebook
    * @return string The response text
    */
   protected function makeRequest($url, $params, $ch=null) {
-    if (!$ch) {
-      $ch = curl_init();
-    }
-
     $opts = self::$CURL_OPTS;
     if ($this->getFileUploadSupport()) {
       $opts[CURLOPT_POSTFIELDS] = $params;
@@ -933,58 +926,29 @@ abstract class BaseFacebook
     }
     $opts[CURLOPT_URL] = $url;
 
-    // disable the 'Expect: 100-continue' behaviour. This causes CURL to wait
-    // for 2 seconds if the server does not support this header.
-    if (isset($opts[CURLOPT_HTTPHEADER])) {
-      $existing_headers = $opts[CURLOPT_HTTPHEADER];
-      $existing_headers[] = 'Expect:';
-      $opts[CURLOPT_HTTPHEADER] = $existing_headers;
-    } else {
-      $opts[CURLOPT_HTTPHEADER] = array('Expect:');
+    $method = 'GET';
+    if(!isset($params['method']) || $params['method'] == '') {
+      $method = 'GET';
+    }
+    else {
+      $method = $params['method'];
     }
 
-    curl_setopt_array($ch, $opts);
-    $result = curl_exec($ch);
+    // Convert to Stream Options
+    $stream_opts = array(
+      'http'=>array(
+        'method'=>$method,
+        'user-agent'=>$opts['CURLOPT_USERAGENT'],
+        'timeout'=>floatval($opts['CURLOPT_TIMEOUT']),
+      ),
+      'ssl'=>array(
+        'verify_peer'=>'true'
+      )
+    );
 
-    if (curl_errno($ch) == 60) { // CURLE_SSL_CACERT
-      self::errorLog('Invalid or no certificate authority found, '.
-                     'using bundled information');
-      curl_setopt($ch, CURLOPT_CAINFO,
-                  dirname(__FILE__) . '/fb_ca_chain_bundle.crt');
-      $result = curl_exec($ch);
-    }
-
-    // With dual stacked DNS responses, it's possible for a server to
-    // have IPv6 enabled but not have IPv6 connectivity.  If this is
-    // the case, curl will try IPv4 first and if that fails, then it will
-    // fall back to IPv6 and the error EHOSTUNREACH is returned by the
-    // operating system.
-    if ($result === false && empty($opts[CURLOPT_IPRESOLVE])) {
-        $matches = array();
-        $regex = '/Failed to connect to ([^:].*): Network is unreachable/';
-        if (preg_match($regex, curl_error($ch), $matches)) {
-          if (strlen(@inet_pton($matches[1])) === 16) {
-            self::errorLog('Invalid IPv6 configuration on server, '.
-                           'Please disable or get native IPv6 on your server.');
-            self::$CURL_OPTS[CURLOPT_IPRESOLVE] = CURL_IPRESOLVE_V4;
-            curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-            $result = curl_exec($ch);
-          }
-        }
-    }
-
-    if ($result === false) {
-      $e = new FacebookApiException(array(
-        'error_code' => curl_errno($ch),
-        'error' => array(
-        'message' => curl_error($ch),
-        'type' => 'CurlException',
-        ),
-      ));
-      curl_close($ch);
-      throw $e;
-    }
-    curl_close($ch);
+    $context = stream_context_create($stream_opts);
+    $url = $opts['CURLOPT_URL'] . '?' . $opts['CURLOPT_POSTFIELDS'];
+    $result = file_get_contents($url, false, $context);
     return $result;
   }
 
